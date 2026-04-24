@@ -58,9 +58,13 @@ export function HeroScene() {
       {/* Click-anywhere layer (below pins). */}
       <ClickableMap />
 
-      {/* Pins share the same motion values so they stay glued to the map. */}
+      {/* Pins share the same parallax translation as the basemap, but
+          no scale — the basemap itself is scaled 1.03 to hide its edges
+          during parallax drift, while the pins/popup layer stays at
+          natural size so popups measure against the real viewport /
+          hero bounds. */}
       <motion.div
-        style={{ x, y, scale: 1.03 }}
+        style={{ x, y }}
         className="pointer-events-none absolute inset-0 z-10"
       >
         <div className="pointer-events-none absolute inset-0">

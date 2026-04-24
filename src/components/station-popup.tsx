@@ -257,38 +257,64 @@ export function StationPopup({
         <UtilizationBars weeks={utilization} />
       )}
 
-      {regional && (
-        <div className="flex flex-col">
-          <div className="flex h-5 items-center justify-between">
-            <p className="text-[14px] leading-5 text-white">
-              Regional utilization
-            </p>
-            <div className="flex h-5 items-center gap-2">
-              <div className="flex h-5 items-center gap-[2px]">
-                {[0, 1, 2].map((i) => (
-                  <span
-                    key={i}
-                    className="h-2 w-[11px] rounded-[2px]"
-                    style={{
-                      backgroundColor:
-                        i < regional.filled ? BAR_FILLED : BAR_EMPTY,
-                    }}
-                  />
-                ))}
-              </div>
-              <p
-                className="text-[12px] leading-5 font-bold tracking-wide"
-                style={{ color: LEVEL_COLOR }}
-              >
-                {regional.level}
+      {regional && (() => {
+        // Regional bars animate LAST — after the three metric rows
+        // (which stagger by 180 ms) and after the weekly utilisation
+        // chart (which finishes around 0.95 s). We add a small buffer so
+        // the regional row reads as a distinct "summary" flourish.
+        const metricsLast =
+          120 + (metrics.length - 1) * 180 + 2 * 90 + 320; // ms
+        const chartLast = utilization && utilization.length > 0
+          ? 200 + (utilization.length - 1) * 70 + 450
+          : 0;
+        const regionalStart = Math.max(metricsLast, chartLast) + 140; // buffer
+        return (
+          <div className="flex flex-col">
+            <div className="flex h-5 items-center justify-between">
+              <p className="text-[14px] leading-5 text-white">
+                Regional utilization
               </p>
+              <div className="flex h-5 items-center gap-2">
+                <div className="flex h-5 items-center gap-[2px]">
+                  {[0, 1, 2].map((i) => (
+                    <motion.span
+                      key={i}
+                      initial={{ opacity: 0, scaleX: 0.2, backgroundColor: BAR_EMPTY }}
+                      animate={{
+                        opacity: 1,
+                        scaleX: 1,
+                        backgroundColor:
+                          i < regional.filled ? BAR_FILLED : BAR_EMPTY,
+                      }}
+                      transition={{
+                        duration: 0.32,
+                        delay: (regionalStart + i * 90) / 1000,
+                        ease: [0.22, 1, 0.36, 1],
+                      }}
+                      className="h-2 w-[11px] origin-left rounded-[2px]"
+                    />
+                  ))}
+                </div>
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{
+                    duration: 0.25,
+                    delay: (regionalStart + 2 * 90 + 100) / 1000,
+                  }}
+                  className="text-[12px] leading-5 font-bold tracking-wide"
+                  style={{ color: LEVEL_COLOR }}
+                >
+                  {regional.level}
+                </motion.p>
+              </div>
             </div>
+            <p className="text-[14px] leading-5 text-white/50">
+              {regional.percent}% chargers in use within 5mi
+            </p>
           </div>
-          <p className="text-[14px] leading-5 text-white/50">
-            {regional.percent}% chargers in use within 5mi
-          </p>
-        </div>
-      )}
+        );
+      })()}
 
       {!hideCta && (
         <button

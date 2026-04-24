@@ -95,12 +95,29 @@ function clampedOffsetViewport(
 
   if (placement === "top" || placement === "bottom") {
     const desiredLeft = clientX - POPUP_W / 2;
-    const clamped = Math.max(minX, Math.min(maxX, desiredLeft));
-    return { offsetX: clamped - desiredLeft, offsetY: 0 };
+    const clampedX = Math.max(minX, Math.min(maxX, desiredLeft));
+    // Defensive primary-axis clamp for the corner-fallback case.
+    const desiredTop =
+      placement === "top"
+        ? clientY - POPUP_OFFSET - POPUP_H
+        : clientY + POPUP_OFFSET;
+    const clampedY = Math.max(minY, Math.min(maxY, desiredTop));
+    return {
+      offsetX: clampedX - desiredLeft,
+      offsetY: clampedY - desiredTop,
+    };
   }
   const desiredTop = clientY - POPUP_H / 2;
-  const clamped = Math.max(minY, Math.min(maxY, desiredTop));
-  return { offsetX: 0, offsetY: clamped - desiredTop };
+  const clampedY = Math.max(minY, Math.min(maxY, desiredTop));
+  const desiredLeft =
+    placement === "left"
+      ? clientX - POPUP_OFFSET - POPUP_W
+      : clientX + POPUP_OFFSET;
+  const clampedX = Math.max(minX, Math.min(maxX, desiredLeft));
+  return {
+    offsetX: clampedX - desiredLeft,
+    offsetY: clampedY - desiredTop,
+  };
 }
 
 const commas = (n: number) => n.toLocaleString();
@@ -212,10 +229,6 @@ function pickPlacement(x: number, y: number, w: number, h: number): Placement {
   const spaceLeft = x;
   const spaceRight = w - x;
 
-  // "Fit" checks use the same 24 px guardrail that the final clamp
-  // enforces — otherwise we might pick top/bottom with 8 px of slack on
-  // the horizontal axis and the clamp has no room to slide without
-  // visibly detaching the popup from the pin.
   const fitsHorizontally =
     x - POPUP_W / 2 >= EDGE_GUARD_FIT &&
     w - (x + POPUP_W / 2) >= EDGE_GUARD_FIT;
@@ -223,10 +236,16 @@ function pickPlacement(x: number, y: number, w: number, h: number): Placement {
     y - POPUP_H / 2 >= EDGE_GUARD_FIT &&
     h - (y + POPUP_H / 2) >= EDGE_GUARD_FIT;
 
-  if (spaceBottom >= POPUP_H + GAP && fitsHorizontally) return "bottom";
-  if (spaceTop >= POPUP_H + GAP && fitsHorizontally) return "top";
-  if (spaceRight >= POPUP_W + GAP && fitsVertically) return "right";
-  if (spaceLeft >= POPUP_W + GAP && fitsVertically) return "left";
+  // Primary-axis threshold bakes in the 24 px edge guard, so a chosen
+  // placement is guaranteed to leave ≥ 24 px between the popup and the
+  // hero edge even before clamp adjustments.
+  const needPrimaryH = POPUP_H + GAP + EDGE_GUARD_FIT;
+  const needPrimaryW = POPUP_W + GAP + EDGE_GUARD_FIT;
+
+  if (spaceBottom >= needPrimaryH && fitsHorizontally) return "bottom";
+  if (spaceTop >= needPrimaryH && fitsHorizontally) return "top";
+  if (spaceRight >= needPrimaryW && fitsVertically) return "right";
+  if (spaceLeft >= needPrimaryW && fitsVertically) return "left";
 
   // Degenerate: pick whichever side has the most raw space.
   const options: Array<[Placement, number]> = [

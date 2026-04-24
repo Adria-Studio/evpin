@@ -216,9 +216,6 @@ function choosePlacement(
   pinRect: DOMRect,
   heroRect: DOMRect | null,
 ): Placement {
-  // Available space is clipped to whichever is smaller: the viewport OR
-  // the hero section (since the hero has overflow:hidden and we don't
-  // want the popup bleeding past its bottom edge).
   const top = Math.max(0, heroRect?.top ?? 0);
   const bottom = Math.min(window.innerHeight, heroRect?.bottom ?? window.innerHeight);
   const left = Math.max(0, heroRect?.left ?? 0);
@@ -229,10 +226,16 @@ function choosePlacement(
   const spaceLeft = pinRect.left - left;
   const spaceRight = right - pinRect.right;
 
-  if (spaceTop >= POPUP_H + GAP) return "top";
-  if (spaceBottom >= POPUP_H + GAP) return "bottom";
-  if (spaceRight >= POPUP_W + GAP) return "right";
-  if (spaceLeft >= POPUP_W + GAP) return "left";
+  // Primary-axis threshold includes the 24 px edge guard so the clamp
+  // never has to fight the layout — if we pick "top" we're guaranteed
+  // the popup will land with ≥ 24 px above its top edge.
+  const needPrimary = POPUP_H + GAP + EDGE_GUARD;
+  const needSecondaryW = POPUP_W + GAP + EDGE_GUARD;
+
+  if (spaceTop >= needPrimary) return "top";
+  if (spaceBottom >= needPrimary) return "bottom";
+  if (spaceRight >= needSecondaryW) return "right";
+  if (spaceLeft >= needSecondaryW) return "left";
 
   // Degenerate case — pin is in a cramped corner. Pick whichever side
   // has the most raw space.
@@ -285,12 +288,33 @@ function clampedOffset(
 
   if (placement === "top" || placement === "bottom") {
     const desiredLeft = pinCx - POPUP_W / 2;
-    const clamped = Math.max(minX, Math.min(maxX, desiredLeft));
-    return { offsetX: clamped - desiredLeft, offsetY: 0 };
+    const clampedX = Math.max(minX, Math.min(maxX, desiredLeft));
+    // Primary-axis guard: in the degenerate corner case where the pin
+    // is too close to an edge for either axis to fit cleanly, shift the
+    // popup along the primary axis so its top/bottom edge lands at the
+    // 24 px guardrail. For healthy pins this is a no-op (popup's natural
+    // position is already well inside).
+    const desiredTop =
+      placement === "top"
+        ? pinRect.top - GAP - POPUP_H
+        : pinRect.bottom + GAP;
+    const clampedY = Math.max(minY, Math.min(maxY, desiredTop));
+    return {
+      offsetX: clampedX - desiredLeft,
+      offsetY: clampedY - desiredTop,
+    };
   }
   const desiredTop = pinCy - POPUP_H / 2;
-  const clamped = Math.max(minY, Math.min(maxY, desiredTop));
-  return { offsetX: 0, offsetY: clamped - desiredTop };
+  const clampedY = Math.max(minY, Math.min(maxY, desiredTop));
+  const desiredLeft =
+    placement === "left"
+      ? pinRect.left - GAP - POPUP_W
+      : pinRect.right + GAP;
+  const clampedX = Math.max(minX, Math.min(maxX, desiredLeft));
+  return {
+    offsetX: clampedX - desiredLeft,
+    offsetY: clampedY - desiredTop,
+  };
 }
 
 export function StationMap({
