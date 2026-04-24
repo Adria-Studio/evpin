@@ -1,6 +1,7 @@
 import { LogoCarousel } from "@/components/logo-carousel";
 import { HeroChecklist } from "@/components/hero-checklist";
 import { ScrollTestimonial } from "@/components/scroll-testimonial";
+import { WorkflowSection } from "@/components/workflow-section";
 import { HeroScene } from "@/components/hero-scene";
 import { SiteNav } from "@/components/site-nav";
 import { CrosshairCursor } from "@/components/crosshair-cursor";
@@ -107,6 +108,8 @@ export default function Home() {
       </section>
 
       <ScrollTestimonial />
+
+      <WorkflowSection />
 
       {/* Page-wide custom cursor overlay. Only visible while hovering over
           a `data-crosshair-zone` or a charging-station pin. */}

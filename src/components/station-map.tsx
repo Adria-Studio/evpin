@@ -331,11 +331,17 @@ export function StationMap({
   // Pick a fresh random slice of the pool on every mount. Within the 9
   // chosen stations, 2–3 are forced to the "low" (yellow) bucket so the
   // map always shows a mix of healthy and poor-quality sites.
-  const [stations] = useState<Station[]>(() => {
+  //
+  // Generated post-mount (not in a lazy initializer) because Math.random
+  // would otherwise produce different values on server vs. client and
+  // trigger a hydration mismatch. The pins fade in from opacity 0 anyway,
+  // so the extra render tick is invisible.
+  const [stations, setStations] = useState<Station[]>([]);
+  useEffect(() => {
     const picks = shuffle(POOL).slice(0, DESIRED_COUNT);
     const lowCount = randInt(2, 3);
-    return picks.map((entry, i) => buildStation(entry, i < lowCount));
-  });
+    setStations(picks.map((entry, i) => buildStation(entry, i < lowCount)));
+  }, []);
 
   // Close any open popup the moment we leave explore mode.
   useEffect(() => {
