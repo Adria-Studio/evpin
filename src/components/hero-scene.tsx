@@ -1,49 +1,36 @@
 "use client";
 
-import { useEffect } from "react";
-import { motion, useMotionValue, useSpring, useTransform } from "motion/react";
 import { StationMap } from "./station-map";
 import { ClickableMap } from "./clickable-map";
+import { HeroMap } from "./hero-map";
+import { HeroMapProvider } from "./hero-map-provider";
 import { useMode } from "./mode-context";
 
 /**
- * Groups the basemap and the charging-station pins into a single parallax
- * layer so they move together in lockstep as the cursor drifts across the
- * viewport. The parallax drift freezes while ANY popup is open — whether
- * it's an existing station popup or a create-mode click popup.
+ * Composes the hero's layered stack:
+ *   1. Mapbox basemap (interactive — drag + zoom)
+ *   2. Readability scrim
+ *   3. Clickable "drop a pin" overlay (create mode only)
+ *   4. Charging-station pins + popups
  */
 export function HeroScene() {
-  const { popupOpen, setPopupOpen } = useMode();
+  return (
+    <HeroMapProvider>
+      <HeroSceneInner />
+    </HeroMapProvider>
+  );
+}
 
-  const cx = useMotionValue(0);
-  const cy = useMotionValue(0);
-
-  const rawX = useTransform(cx, (v) => -v * 0.012);
-  const rawY = useTransform(cy, (v) => -v * 0.012);
-  const x = useSpring(rawX, { stiffness: 80, damping: 22, mass: 0.6 });
-  const y = useSpring(rawY, { stiffness: 80, damping: 22, mass: 0.6 });
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      // Freeze the drift while any popup is visible.
-      if (popupOpen) return;
-      cx.set(e.clientX - window.innerWidth / 2);
-      cy.set(e.clientY - window.innerHeight / 2);
-    };
-    window.addEventListener("mousemove", onMove, { passive: true });
-    return () => window.removeEventListener("mousemove", onMove);
-  }, [cx, cy, popupOpen]);
+function HeroSceneInner() {
+  const { setPopupOpen } = useMode();
 
   return (
     <>
-      {/* Basemap image drifts opposite to cursor */}
-      <motion.img
-        src="/figma/basemap-new.png"
-        alt=""
-        draggable={false}
-        style={{ x, y, scale: 1.03 }}
-        className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover object-center"
-      />
+      {/* Mapbox basemap. No CSS transforms on the container — the map's
+          own drag/zoom math expects an untransformed canvas. */}
+      <div className="absolute inset-0">
+        <HeroMap />
+      </div>
 
       {/* Readability scrim */}
       <div
@@ -55,24 +42,17 @@ export function HeroScene() {
         }}
       />
 
-      {/* Click-anywhere layer (below pins). */}
+      {/* Click-anywhere layer. Only captures pointer events in create
+          mode — in explore mode it sits pointer-events-none so drag and
+          scroll-zoom reach the Mapbox canvas underneath. */}
       <ClickableMap />
 
-      {/* Pins share the same parallax translation as the basemap, but
-          no scale — the basemap itself is scaled 1.03 to hide its edges
-          during parallax drift, while the pins/popup layer stays at
-          natural size so popups measure against the real viewport /
-          hero bounds. */}
-      <motion.div
-        style={{ x, y }}
-        className="pointer-events-none absolute inset-0 z-10"
-      >
-        <div className="pointer-events-none absolute inset-0">
-          <StationMap
-            onActiveChange={(open) => setPopupOpen("station", open)}
-          />
-        </div>
-      </motion.div>
+      {/* Station pins + popups. */}
+      <div className="pointer-events-none absolute inset-0 z-10">
+        <StationMap
+          onActiveChange={(open) => setPopupOpen("station", open)}
+        />
+      </div>
     </>
   );
 }

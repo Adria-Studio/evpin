@@ -49,7 +49,7 @@ export function ScrollTestimonial() {
   return (
     <section
       ref={ref}
-      className="w-full"
+      className="relative w-full"
       style={{ backgroundColor: "hsl(255, 25%, 98%)" }}
     >
       {/* Wrapper is 130 vh (down from 200 vh) — still gives ~30 vh of

@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Inter } from "next/font/google";
 import localFont from "next/font/local";
 import { Agentation } from "agentation";
 import { SoundRoot } from "@/components/sound-root";
+import "mapbox-gl/dist/mapbox-gl.css";
 import "./globals.css";
 
 // Apple's SF Pro variable font. The single .ttf contains every weight +

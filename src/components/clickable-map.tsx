@@ -6,6 +6,8 @@ import { useSound } from "@web-kits/audio/react";
 import { notification, errorSound } from "@/lib/ui-sounds";
 import { StationPopup, type Placement } from "./station-popup";
 import { useMode } from "./mode-context";
+import { useHeroMap } from "./hero-map-provider";
+import { useMapReproject } from "@/lib/use-map-reproject";
 
 /**
  * Right-half "drop a pin" interactive layer.
@@ -13,8 +15,8 @@ import { useMode } from "./mode-context";
  * - When the cursor is over the layer (roughly the right half of the hero)
  *   it switches to a crosshair, inviting the user to drop a pin anywhere
  *   on the map.
- * - On click, we sample the pixel colour from the basemap PNG via an
- *   offscreen canvas to decide whether the click landed on ocean or land.
+ * - On click, we ask the Mapbox basemap whether the click landed on a
+ *   rendered water feature to decide ocean vs land.
  * - A popup using the same `StationPopup` form factor opens at the click
  *   location — neighborhoods get a neutral 3–5 rating with neighborhood +
  *   EV adoption stats, while ocean clicks get a 0/5 blue popup with shark
@@ -42,6 +44,12 @@ const OCEAN_NAMES = [
 ];
 
 type Click = {
+  // Anchor lng/lat — the pin + popup re-project through the map on
+  // every move/zoom so they stay planted on the geographic point the
+  // user dropped them at. x/y are the screen-space positions computed
+  // for the current viewport.
+  lng: number;
+  lat: number;
   x: number;
   y: number;
   type: "land" | "ocean";
@@ -273,15 +281,16 @@ const placementStyle = (p: Placement) => {
 
 export function ClickableMap() {
   const { mode, setPopupOpen } = useMode();
+  const { map } = useHeroMap();
   const layerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<{
-    ctx: CanvasRenderingContext2D;
-    w: number;
-    h: number;
-  } | null>(null);
   const [click, setClick] = useState<Click | null>(null);
   const playNotification = useSound(notification);
   const playError = useSound(errorSound);
+
+  // Re-project the dropped pin whenever the user drags / zooms the map.
+  // rAF-coalesced inside the hook so a 60 Hz drag yields at most one
+  // render per frame, not one per map `move` event.
+  useMapReproject(map);
 
   // Drop any open popup and clear the crosshair zone when the user
   // leaves create mode.
@@ -303,26 +312,6 @@ export function ClickableMap() {
     }
     return () => setPopupOpen("click", false);
   }, [click, setPopupOpen]);
-
-  // Preload basemap into an offscreen canvas for pixel sampling.
-  useEffect(() => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = "/figma/basemap-new.png";
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.drawImage(img, 0, 0);
-      canvasRef.current = {
-        ctx,
-        w: img.naturalWidth,
-        h: img.naturalHeight,
-      };
-    };
-  }, []);
 
   // Close on outside click / Escape
   useEffect(() => {
@@ -347,49 +336,40 @@ export function ClickableMap() {
     // interacting with existing charging stations.
     if (mode !== "create") return;
     const layer = layerRef.current;
-    const canvas = canvasRef.current;
     if (!layer) return;
 
     const rect = layer.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
 
-    // Determine ocean vs land via pixel sampling, with a positional
-    // fallback if the canvas isn't ready yet.
-    let isOcean = cx < rect.width * 0.08; // far left fallback
-    if (canvas) {
-      const imgAspect = canvas.w / canvas.h;
-      const sectionAspect = rect.width / rect.height;
-      let scale: number;
-      let offsetX = 0;
-      let offsetY = 0;
-      if (sectionAspect > imgAspect) {
-        // object-cover: width limiting
-        scale = rect.width / canvas.w;
-        offsetY = (canvas.h * scale - rect.height) / 2;
-      } else {
-        scale = rect.height / canvas.h;
-        offsetX = (canvas.w * scale - rect.width) / 2;
-      }
-      const imgX = Math.min(
-        canvas.w - 1,
-        Math.max(0, (cx + offsetX) / scale),
-      );
-      const imgY = Math.min(
-        canvas.h - 1,
-        Math.max(0, (cy + offsetY) / scale),
-      );
+    // Ask the Mapbox basemap whether the click landed on water. The
+    // Standard style hides its water layer behind an internal slot so
+    // we can't query a specific layer id — instead we query *all*
+    // features at the point and look for water-like markers
+    // (sourceLayer / layer id), then fall back to a geographic check
+    // against SF's western coastline (~ -122.511 longitude). The hero's
+    // framing keeps the bay off-screen so a single threshold is enough.
+    let isOcean = cx < rect.width * 0.08;
+    if (map) {
+      const canvasRect = map.getCanvas().getBoundingClientRect();
+      const mapX = e.clientX - canvasRect.left;
+      const mapY = e.clientY - canvasRect.top;
       try {
-        const [r, g, b] = canvas.ctx.getImageData(
-          Math.floor(imgX),
-          Math.floor(imgY),
-          1,
-          1,
-        ).data;
-        // Blue dominates on ocean pixels in this basemap.
-        isOcean = b > 140 && b > r * 1.08 && b > g * 0.92 && r < 200;
+        const features = map.queryRenderedFeatures([mapX, mapY]);
+        const hitWater = features.some(
+          (f) =>
+            f.sourceLayer === "water" ||
+            /water|ocean/i.test(f.layer?.id ?? ""),
+        );
+        if (hitWater) {
+          isOcean = true;
+        } else {
+          const { lng } = map.unproject([mapX, mapY]);
+          isOcean = lng < -122.511;
+        }
       } catch {
-        /* canvas tainted, fall through to heuristic */
+        const { lng } = map.unproject([mapX, mapY]);
+        isOcean = lng < -122.511;
       }
     }
 
@@ -412,7 +392,20 @@ export function ClickableMap() {
       rect,
     );
 
+    // Capture the lng/lat anchor so the pin stays planted on the
+    // geographic point as the map pans/zooms. Without a live map we use
+    // the rect-relative pixel position as a best-effort fallback.
+    const canvasRect = map?.getCanvas().getBoundingClientRect();
+    const lngLat = map
+      ? map.unproject([
+          e.clientX - (canvasRect?.left ?? 0),
+          e.clientY - (canvasRect?.top ?? 0),
+        ])
+      : null;
+
     setClick({
+      lng: lngLat?.lng ?? 0,
+      lat: lngLat?.lat ?? 0,
       x: cx,
       y: cy,
       type: isOcean ? "ocean" : "land",
@@ -421,7 +414,7 @@ export function ClickableMap() {
       offsetX: off.offsetX,
       offsetY: off.offsetY,
     });
-  }, [mode, playNotification, playError]);
+  }, [mode, map, playNotification, playError]);
 
   return (
     <div
@@ -430,8 +423,14 @@ export function ClickableMap() {
       // the cursor's horizontal position — the CrosshairCursor component
       // picks that up and paints the custom SVG on the right half. When a
       // popup is open, the whole layer lifts above the pins (z-10) and the
-      // sticky nav (z-50) so the popup renders on top.
-      className={`absolute inset-0 ${click ? "z-[60]" : "z-[8]"}`}
+      // sticky nav (z-50) so the popup renders on top. Explore mode leaves
+      // the layer pointer-events-none so drag + scroll-zoom pass through
+      // to the Mapbox canvas underneath.
+      className={[
+        "absolute inset-0",
+        click ? "z-[60]" : "z-[8]",
+        mode === "create" || click ? "" : "pointer-events-none",
+      ].filter(Boolean).join(" ")}
       // Tell downstream components whether this layer is "armed" (create
       // mode). The CrosshairCursor reads this so it only takes over the
       // native cursor while in create mode.
@@ -450,11 +449,28 @@ export function ClickableMap() {
       }}
     >
       <AnimatePresence>
-        {click && (
+        {click && (() => {
+          // Re-project the click's geographic anchor through the current
+          // map state so the pin + popup stay planted as the user pans /
+          // zooms. Fall back to the original click pixels if the map
+          // isn't available (shouldn't happen in practice — we only
+          // captured a click because the layer received one).
+          const anchor = map
+            ? (() => {
+                const rect = layerRef.current?.getBoundingClientRect();
+                const canvasRect = map.getCanvas().getBoundingClientRect();
+                const pt = map.project([click.lng, click.lat]);
+                return {
+                  x: pt.x + (canvasRect.left - (rect?.left ?? 0)),
+                  y: pt.y + (canvasRect.top - (rect?.top ?? 0)),
+                };
+              })()
+            : { x: click.x, y: click.y };
+          return (
           <div
-            key={`${click.x}-${click.y}`}
+            key={`${click.lng}-${click.lat}`}
             className="absolute z-[60]"
-            style={{ left: click.x, top: click.y }}
+            style={{ left: anchor.x, top: anchor.y }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Placeholder pin — shown for every click (land and
@@ -532,7 +548,8 @@ export function ClickableMap() {
               />
             </div>
           </div>
-        )}
+          );
+        })()}
       </AnimatePresence>
     </div>
   );

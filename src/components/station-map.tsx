@@ -5,11 +5,13 @@ import { AnimatePresence, motion } from "motion/react";
 import { ChargingPin } from "./charging-pin";
 import { StationPopup, type Placement } from "./station-popup";
 import { useMode } from "./mode-context";
+import { useHeroMap } from "./hero-map-provider";
+import { useMapReproject } from "@/lib/use-map-reproject";
 
 type Station = {
   id: string;
-  top: string;
-  left: string;
+  lng: number;
+  lat: number;
   address: string;
   city: string;
   rating: string;
@@ -32,40 +34,40 @@ const levelOf = (filled: number) =>
   (filled === 3 ? "HIGH" : filled === 2 ? "MED" : "LOW") as "LOW" | "MED" | "HIGH";
 
 /**
- * Curated pool of SF neighborhood coordinates that land on visible streets
- * over the new basemap. Each entry is validated to sit on asphalt (not
- * water / park). On mount we pick 9 of these at random, so every refresh
- * shows the same count of pins placed differently.
+ * Curated pool of real SF neighborhood coordinates. Each entry is placed
+ * on an actual street intersection so the pin lands on asphalt regardless
+ * of current zoom/pan. On mount we pick 9 of these at random, so every
+ * refresh shows the same count of pins placed differently.
  */
 type PoolEntry = {
   id: string;
-  top: string; // % of section
-  left: string; // % of section
+  lng: number;
+  lat: number;
   name: string; // short name — "Charging Station" is appended on render
   zip: string;
 };
 
 const POOL: PoolEntry[] = [
-  { id: "sea-cliff",        top: "34%", left: "65%", name: "Sea Cliff",        zip: "94121" },
-  { id: "lincoln-park",     top: "45%", left: "62%", name: "Lincoln Park",     zip: "94121" },
-  { id: "outer-richmond-a", top: "53%", left: "69%", name: "Outer Richmond",   zip: "94121" },
-  { id: "outer-richmond-b", top: "50%", left: "74%", name: "Balboa St & 25th", zip: "94121" },
-  { id: "inner-richmond",   top: "50%", left: "82%", name: "Inner Richmond",   zip: "94118" },
-  { id: "laurel-heights",   top: "42%", left: "88%", name: "Laurel Heights",   zip: "94118" },
-  { id: "pacific-heights",  top: "58%", left: "90%", name: "Pacific Heights",  zip: "94115" },
-  { id: "presidio-gate",    top: "38%", left: "74%", name: "Presidio Gate",    zip: "94118" },
-  { id: "anza-vista",       top: "55%", left: "86%", name: "Anza Vista",       zip: "94115" },
-  { id: "gg-park-east",     top: "72%", left: "78%", name: "Golden Gate Park", zip: "94117" },
-  { id: "gg-park-center",   top: "73%", left: "72%", name: "GGP Conservatory", zip: "94117" },
-  { id: "haight",           top: "66%", left: "88%", name: "Haight Ashbury",   zip: "94117" },
-  { id: "inner-sunset",     top: "78%", left: "84%", name: "Inner Sunset",     zip: "94122" },
-  { id: "outer-sunset",     top: "82%", left: "73%", name: "Outer Sunset",     zip: "94122" },
-  { id: "sunset-corridor",  top: "82%", left: "80%", name: "Sunset Corridor",  zip: "94122" },
-  { id: "balboa-terrace",   top: "76%", left: "86%", name: "Balboa Terrace",   zip: "94132" },
-  { id: "forest-hill",      top: "78%", left: "90%", name: "Forest Hill",      zip: "94127" },
-  { id: "golden-gate-hts",  top: "72%", left: "84%", name: "Golden Gate Hts",  zip: "94116" },
-  { id: "parkside",         top: "86%", left: "84%", name: "Parkside",         zip: "94116" },
-  { id: "richmond-park",    top: "58%", left: "76%", name: "Richmond / 19th",  zip: "94121" },
+  { id: "sea-cliff",        lng: -122.4935, lat: 37.7855, name: "Sea Cliff",        zip: "94121" },
+  { id: "lincoln-park",     lng: -122.4979, lat: 37.7834, name: "Lincoln Park",     zip: "94121" },
+  { id: "outer-richmond-a", lng: -122.4910, lat: 37.7805, name: "Outer Richmond",   zip: "94121" },
+  { id: "outer-richmond-b", lng: -122.4831, lat: 37.7762, name: "Balboa St & 25th", zip: "94121" },
+  { id: "inner-richmond",   lng: -122.4640, lat: 37.7828, name: "Inner Richmond",   zip: "94118" },
+  { id: "laurel-heights",   lng: -122.4486, lat: 37.7857, name: "Laurel Heights",   zip: "94118" },
+  { id: "pacific-heights",  lng: -122.4392, lat: 37.7914, name: "Pacific Heights",  zip: "94115" },
+  { id: "presidio-gate",    lng: -122.4618, lat: 37.7879, name: "Presidio Gate",    zip: "94118" },
+  { id: "anza-vista",       lng: -122.4486, lat: 37.7804, name: "Anza Vista",       zip: "94115" },
+  { id: "gg-park-east",     lng: -122.4546, lat: 37.7712, name: "Golden Gate Park", zip: "94117" },
+  { id: "gg-park-center",   lng: -122.4658, lat: 37.7719, name: "GGP Conservatory", zip: "94117" },
+  { id: "haight",           lng: -122.4459, lat: 37.7703, name: "Haight Ashbury",   zip: "94117" },
+  { id: "inner-sunset",     lng: -122.4661, lat: 37.7635, name: "Inner Sunset",     zip: "94122" },
+  { id: "outer-sunset",     lng: -122.4980, lat: 37.7604, name: "Outer Sunset",     zip: "94122" },
+  { id: "sunset-corridor",  lng: -122.4873, lat: 37.7540, name: "Sunset Corridor",  zip: "94122" },
+  { id: "balboa-terrace",   lng: -122.4634, lat: 37.7280, name: "Balboa Terrace",   zip: "94132" },
+  { id: "forest-hill",      lng: -122.4661, lat: 37.7451, name: "Forest Hill",      zip: "94127" },
+  { id: "golden-gate-hts",  lng: -122.4721, lat: 37.7589, name: "Golden Gate Hts",  zip: "94116" },
+  { id: "parkside",         lng: -122.4930, lat: 37.7432, name: "Parkside",         zip: "94116" },
+  { id: "richmond-park",    lng: -122.4779, lat: 37.7762, name: "Richmond / 19th",  zip: "94121" },
 ];
 
 function shuffle<T>(arr: T[]): T[] {
@@ -160,8 +162,8 @@ function buildStation(entry: PoolEntry, forceLow = false): Station {
 
   return {
     id: entry.id,
-    top: entry.top,
-    left: entry.left,
+    lng: entry.lng,
+    lat: entry.lat,
     address: `${entry.name} Charging Station`,
     city: `San Francisco, CA ${entry.zip}`,
     rating,
@@ -323,10 +325,16 @@ export function StationMap({
   onActiveChange?: (open: boolean) => void;
 } = {}) {
   const { mode } = useMode();
+  const { map } = useHeroMap();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [placement, setPlacement] = useState<Placement>("top");
   const [offset, setOffset] = useState({ offsetX: 0, offsetY: 0 });
   const pinRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // Re-render whenever the user drags / zooms the map so each pin's
+  // projected pixel position updates. Pins stay anchored to their real
+  // lng/lat regardless of viewport state. rAF-coalesced inside the hook.
+  useMapReproject(map);
 
   // Pick a fresh random slice of the pool on every mount. Within the 9
   // chosen stations, 2–3 are forced to the "low" (yellow) bucket so the
@@ -394,6 +402,11 @@ export function StationMap({
       {stations.map((s, i) => {
         const isActive = activeId === s.id;
         const hidden = mode === "create";
+        // Project the station's lng/lat through the live map on every
+        // render. If the map isn't ready yet, skip — pins reappear once
+        // the basemap loads and forceReproject triggers a re-render.
+        if (!map) return null;
+        const point = map.project([s.lng, s.lat]);
         return (
           <motion.div
             key={s.id}
@@ -409,7 +422,7 @@ export function StationMap({
               hidden ? "pointer-events-none" : "pointer-events-auto",
               isActive ? "z-40" : "z-30",
             ].join(" ")}
-            style={{ top: s.top, left: s.left }}
+            style={{ top: `${point.y}px`, left: `${point.x}px` }}
             // - Scale transforms interfere with backdrop-filter rendering
             //   so we only animate opacity + y.
             // - When `mode` flips to "create" the pins disappear one by

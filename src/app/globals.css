@@ -2,6 +2,12 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* Tailwind v4's auto-detection is git-aware: untracked files (e.g. the
+   freshly added `src/components/ui/` shadcn primitives) get skipped, so
+   their utilities never make it into the bundle. Force-scan everything
+   under `src/`. */
+@source "../../src";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
